@@ -291,6 +291,18 @@
         <input id="clientAfmInput" type="text" placeholder="ΑΦΜ" maxlength="9">
         <button id="addClientBtn" class="primary"><i class="fas fa-user-plus"></i> Προσθήκη</button>
         <div id="clientMessage" class="message hidden"></div>
+
+        <!-- List clients for admin -->
+        <div id="clientListWrapper" style="margin-top:1rem;">
+          <h4>Πελάτες</h4>
+          <input id="clientSearchInput" type="text" placeholder="Αναζήτηση πελάτη" style="width:100%;padding:.5rem;margin-bottom:.5rem;border:1px solid #ccc;border-radius:4px;">
+          <table>
+            <thead>
+              <tr><th>Όνομα</th><th>ΑΦΜ</th><th>Ενέργεια</th></tr>
+            </thead>
+            <tbody id="clientsBody"></tbody>
+          </table>
+        </div>
       </section>
       <!-- Manage products section -->
       <section id="manageProductsSection" class="card hidden">
@@ -376,6 +388,8 @@
     const addProductBtn = document.getElementById('addProductBtn');
     const manageProductsBody = document.getElementById('manageProductsBody');
     const productMessage = document.getElementById('productMessage');
+    const clientSearchInput = document.getElementById('clientSearchInput');
+    const clientsBody = document.getElementById('clientsBody');
     const successPopup = document.getElementById('successPopup');
     const closePopupBtn = document.getElementById('closePopupBtn');
     const confettiContainer = document.getElementById('confettiContainer');
@@ -424,6 +438,11 @@
       showTab('order');
       await loadProducts();
       await loadOrders();
+
+      // Preload clients list for admin
+      if (currentUser.role === 'admin') {
+        loadClients('');
+      }
 
       // Show welcome popup briefly
       showWelcomePopup();
@@ -481,6 +500,10 @@
       if (id === 'orders') ordersSection.classList.remove('hidden');
       if (id === 'client') addClientSection.classList.remove('hidden');
       if (id === 'products') manageProductsSection.classList.remove('hidden');
+      // When showing client tab, load clients
+      if (id === 'client') {
+        loadClients('');
+      }
     }
 
     async function loadProducts() {
@@ -688,6 +711,12 @@
         showMsg(clientMessage, 'Συμπληρώστε όλα τα πεδία.', 'error');
         return;
       }
+      // Check if AFM already exists
+      const { data: existingProfiles, error: existingErr } = await supabaseAdmin.from('profiles').select('id').eq('afm', afm);
+      if (existingProfiles && existingProfiles.length > 0) {
+        showMsg(clientMessage, 'Ο πελάτης με αυτό το ΑΦΜ υπάρχει ήδη.', 'error');
+        return;
+      }
       // Insert company
       const { data: comp, error: compErr } = await supabaseAdmin.from('companies').insert({ name, afm }).select().single();
       if (compErr) { showMsg(clientMessage, 'Σφάλμα εταιρείας.', 'error'); return; }
@@ -695,18 +724,20 @@
         // Generate simple password (not used for login but required by Supabase auth)
         const randomPass = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
         // Create auth user for client
-        const { data: newUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({ email: `${afm}@kgfrost.local`, password: randomPass });
-        if (authErr) {
+        const { data: userResponse, error: authErr } = await supabaseAdmin.auth.admin.createUser({ email: `${afm}@kgfrost.local`, password: randomPass });
+        if (authErr || !userResponse || !userResponse.user) {
           showMsg(clientMessage, 'Σφάλμα δημιουργίας χρήστη.', 'error');
           return;
         }
-        const userId = newUser.user?.id || newUser.id || null;
+        const userId = userResponse.user.id;
         // Insert profile with the new auth user id
         const { error: profErr } = await supabaseAdmin.from('profiles').insert({ id: userId, afm, company_id: comp.id, role: 'customer', display_name: name });
         if (profErr) { showMsg(clientMessage, 'Σφάλμα προφίλ.', 'error'); return; }
         showMsg(clientMessage, 'Ο πελάτης προστέθηκε.', 'success');
         clientNameInput.value = '';
         clientAfmInput.value = '';
+        // Refresh clients list
+        loadClients(clientSearchInput ? clientSearchInput.value.trim() : '');
       } catch (err) {
         showMsg(clientMessage, 'Σφάλμα κατά την προσθήκη.', 'error');
       }
@@ -760,7 +791,7 @@
       welcomePopup.classList.remove('hidden');
       setTimeout(() => {
         welcomePopup.classList.add('hidden');
-      }, 500);
+      }, 1000);
     }
 
     // Orders refresh interval for admin
@@ -792,6 +823,55 @@
       window.print();
     });
 
+    // Load clients list for admin with optional search term
+    async function loadClients(searchTerm = '') {
+      if (!clientsBody) return;
+      let query = supabaseAdmin
+        .from('profiles')
+        .select('id, afm, display_name, company_id, company:company_id(name)')
+        .eq('role', 'customer');
+      if (searchTerm) {
+        // search by display_name or company name case-insensitive
+        query = query.ilike('display_name', `%${searchTerm}%`);
+      }
+      const { data, error } = await query.order('display_name');
+      if (error) {
+        console.error('loadClients error', error);
+        return;
+      }
+      clientsBody.innerHTML = '';
+      (data || []).forEach(client => {
+        const row = document.createElement('tr');
+        const name = client.display_name || (client.company ? client.company.name : '');
+        const nameCell = document.createElement('td'); nameCell.textContent = name;
+        const afmCell = document.createElement('td'); afmCell.textContent = client.afm;
+        const actionCell = document.createElement('td');
+        const deleteBtn = document.createElement('button'); deleteBtn.className = 'danger'; deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Διαγραφή';
+        deleteBtn.addEventListener('click', async () => {
+          if (!confirm('Σίγουρα διαγραφή πελάτη;')) return;
+          // Delete user from auth and profiles and company
+          try {
+            // Remove from auth
+            await supabaseAdmin.auth.admin.deleteUser(client.id);
+          } catch (err) {
+            console.error('delete auth user error', err);
+          }
+          // Delete profile
+          await supabaseAdmin.from('profiles').delete().eq('id', client.id);
+          // Delete company if exists
+          if (client.company_id) {
+            await supabaseAdmin.from('companies').delete().eq('id', client.company_id);
+          }
+          loadClients(clientSearchInput ? clientSearchInput.value.trim() : '');
+        });
+        actionCell.appendChild(deleteBtn);
+        row.appendChild(nameCell);
+        row.appendChild(afmCell);
+        row.appendChild(actionCell);
+        clientsBody.appendChild(row);
+      });
+    }
+
     // Event listeners
     loginBtn.addEventListener('click', loginUser);
     logoutBtn.addEventListener('click', () => {
@@ -805,6 +885,13 @@
     submitOrderBtn.addEventListener('click', submitOrder);
     addClientBtn.addEventListener('click', addClient);
     addProductBtn.addEventListener('click', addProduct);
+
+    // Search clients listener
+    if (clientSearchInput) {
+      clientSearchInput.addEventListener('input', () => {
+        loadClients(clientSearchInput.value.trim());
+      });
+    }
   </script>
 </body>
 </html>
