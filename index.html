@@ -221,7 +221,8 @@
 
     /* User info display */
     #userInfo {
-      font-size: 0.9rem;
+      font-size: 1rem;
+      font-weight: 600;
       color: var(--secondary-color);
       margin-bottom: 0.5rem;
     }
@@ -278,7 +279,7 @@
       <section id="ordersSection" class="card hidden">
         <table>
           <thead>
-            <tr><th>Κωδικός</th><th>Εταιρεία</th><th>Ημερομηνία</th><th>Κατάσταση</th><th>Ενέργεια</th></tr>
+            <tr><th>Εταιρεία</th><th>Ημερομηνία</th><th>Κατάσταση</th><th>Ενέργεια</th></tr>
           </thead>
           <tbody id="ordersBody"></tbody>
         </table>
@@ -298,7 +299,7 @@
         <button id="addProductBtn" class="primary"><i class="fas fa-plus"></i> Προσθήκη</button>
         <table>
           <thead>
-            <tr><th>Κωδικός</th><th>Προϊόν</th><th>Ενέργεια</th></tr>
+            <tr><th>Προϊόν</th><th>Ενέργεια</th></tr>
           </thead>
           <tbody id="manageProductsBody"></tbody>
         </table>
@@ -314,6 +315,14 @@
       <button id="closePopupBtn" class="primary">Κλείσιμο</button>
       <!-- Confetti container -->
       <div id="confettiContainer" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;"></div>
+    </div>
+  </div>
+
+  <!-- Welcome popup after login -->
+  <div id="welcomePopup" class="hidden" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:9998;">
+    <div style="background:#fff;padding:2rem;border-radius:6px;box-shadow:var(--shadow);text-align:center;">
+      <div style="font-size:2rem;color:var(--primary-color);">😊</div>
+      <p style="margin:.5rem 0 0 0;font-weight:bold;">Καλώς ήρθατε!</p>
     </div>
   </div>
 
@@ -415,6 +424,15 @@
       showTab('order');
       await loadProducts();
       await loadOrders();
+
+      // Show welcome popup briefly
+      showWelcomePopup();
+      // Start orders auto-refresh if admin
+      if (currentUser.role === 'admin') {
+        startOrdersRefresh();
+      } else {
+        stopOrdersRefresh();
+      }
     }
 
     function setupTabsForRole(role) {
@@ -492,7 +510,6 @@
         productMap[prod.id] = prod.name;
         // Manage products list
         const row2 = document.createElement('tr');
-        const idCell2 = document.createElement('td'); idCell2.textContent = prod.id;
         const nameCell2 = document.createElement('td'); nameCell2.textContent = prod.name;
         const actionCell2 = document.createElement('td');
         const deleteBtn = document.createElement('button'); deleteBtn.className='danger'; deleteBtn.innerHTML='<i class="fas fa-trash"></i> Διαγραφή';
@@ -507,7 +524,8 @@
           }
         });
         actionCell2.appendChild(deleteBtn);
-        row2.appendChild(idCell2); row2.appendChild(nameCell2); row2.appendChild(actionCell2);
+        row2.appendChild(nameCell2);
+        row2.appendChild(actionCell2);
         manageProductsBody.appendChild(row2);
       });
       updateCart();
@@ -522,11 +540,34 @@
         const qtyCell = document.createElement('td');
         qtyCell.className = 'cart-qty';
         const minusBtn = document.createElement('button'); minusBtn.innerHTML = '<i class="fas fa-minus"></i>'; minusBtn.className='secondary';
-        const qtySpan = document.createElement('span'); qtySpan.textContent = qty;
+        const qtyInput = document.createElement('input');
+        qtyInput.type = 'number';
+        qtyInput.min = 1;
+        qtyInput.value = qty;
+        qtyInput.style.width = '50px';
+        qtyInput.style.textAlign = 'center';
         const plusBtn = document.createElement('button'); plusBtn.innerHTML = '<i class="fas fa-plus"></i>'; plusBtn.className='secondary';
-        minusBtn.addEventListener('click', () => { cart[pid] = Math.max(0, cart[pid] - 1); if (cart[pid] === 0) delete cart[pid]; updateCart(); });
-        plusBtn.addEventListener('click', () => { cart[pid] = cart[pid] + 1; updateCart(); });
-        qtyCell.appendChild(minusBtn); qtyCell.appendChild(qtySpan); qtyCell.appendChild(plusBtn);
+        minusBtn.addEventListener('click', () => {
+          cart[pid] = Math.max(0, cart[pid] - 1);
+          if (cart[pid] === 0) delete cart[pid];
+          updateCart();
+        });
+        plusBtn.addEventListener('click', () => {
+          cart[pid] = cart[pid] + 1;
+          updateCart();
+        });
+        qtyInput.addEventListener('change', () => {
+          let val = parseInt(qtyInput.value);
+          if (isNaN(val) || val < 1) {
+            delete cart[pid];
+          } else {
+            cart[pid] = val;
+          }
+          updateCart();
+        });
+        qtyCell.appendChild(minusBtn);
+        qtyCell.appendChild(qtyInput);
+        qtyCell.appendChild(plusBtn);
         const removeCell = document.createElement('td');
         const removeBtn = document.createElement('button'); removeBtn.className='danger'; removeBtn.innerHTML='<i class="fas fa-trash"></i>';
         removeBtn.addEventListener('click', () => { delete cart[pid]; updateCart(); });
@@ -592,7 +633,6 @@
         if (currentUser.role === 'admin' && order.status === 'completed') {
           row.classList.add('completed');
         }
-        const idCell = document.createElement('td'); idCell.textContent = order.id;
         const companyCell = document.createElement('td'); companyCell.textContent = order.company.name;
         const dateCell = document.createElement('td'); dateCell.textContent = new Date(order.created_at).toLocaleString();
         const statusCell = document.createElement('td'); statusCell.textContent = order.status;
@@ -610,7 +650,10 @@
           });
           actionCell.appendChild(completeBtn);
         }
-        row.appendChild(idCell); row.appendChild(companyCell); row.appendChild(dateCell); row.appendChild(statusCell); row.appendChild(actionCell);
+        row.appendChild(companyCell);
+        row.appendChild(dateCell);
+        row.appendChild(statusCell);
+        row.appendChild(actionCell);
         ordersBody.appendChild(row);
       });
     }
@@ -710,6 +753,33 @@
       successPopup.classList.add('hidden');
     });
 
+    // Welcome popup
+    const welcomePopup = document.getElementById('welcomePopup');
+    function showWelcomePopup() {
+      if (!welcomePopup) return;
+      welcomePopup.classList.remove('hidden');
+      setTimeout(() => {
+        welcomePopup.classList.add('hidden');
+      }, 2000);
+    }
+
+    // Orders refresh interval for admin
+    let ordersRefreshInterval = null;
+    function startOrdersRefresh() {
+      stopOrdersRefresh();
+      ordersRefreshInterval = setInterval(() => {
+        if (currentUser && currentUser.role === 'admin') {
+          loadOrders();
+        }
+      }, 15000);
+    }
+    function stopOrdersRefresh() {
+      if (ordersRefreshInterval) {
+        clearInterval(ordersRefreshInterval);
+        ordersRefreshInterval = null;
+      }
+    }
+
     // Order modal close & print handlers
     const orderModal = document.getElementById('orderModal');
     const closeOrderModalBtn = document.getElementById('closeOrderModal');
@@ -730,6 +800,7 @@
       mainSection.classList.add('hidden');
       loginSection.classList.remove('hidden');
       afmInput.value = '';
+      stopOrdersRefresh();
     });
     submitOrderBtn.addEventListener('click', submitOrder);
     addClientBtn.addEventListener('click', addClient);
