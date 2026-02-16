@@ -467,7 +467,6 @@
       } else {
         tabs = [
           { id: 'order', label: 'Παραγγελία' },
-          { id: 'orders', label: 'Ιστορικό' }
         ];
       }
       const iconMap = {
@@ -496,6 +495,7 @@
       addClientSection.classList.add('hidden');
       manageProductsSection.classList.add('hidden');
       // Show selected
+      if (currentUser && currentUser.role !== 'admin' && id === 'orders') return;
       if (id === 'order') orderSection.classList.remove('hidden');
       if (id === 'orders') ordersSection.classList.remove('hidden');
       if (id === 'client') addClientSection.classList.remove('hidden');
@@ -635,10 +635,6 @@
       document.getElementById('orderNotes').value = '';
       showSuccessPopup('Η παραγγελία καταχωρήθηκε.');
       await loadOrders();
-      // Redirect to history tab for non-admin users
-      if (currentUser.role !== 'admin') {
-        // Wait a moment to ensure orders are loaded then show orders tab
-        showTab('orders');
       }
     }
 
