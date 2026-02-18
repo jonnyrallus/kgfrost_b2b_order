@@ -636,7 +636,6 @@
       showSuccessPopup('Η παραγγελία καταχωρήθηκε.');
       await loadOrders();
       }
-    }
 
     async function loadOrders() {
       let query = supabaseAdmin.from('orders').select('id, company_id, created_at, status, company:company_id(name)').order('created_at', { ascending: false });
